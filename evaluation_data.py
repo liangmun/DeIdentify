@@ -7,19 +7,21 @@ import pydicom as dicom
 import os
 from PIL import Image
 import mritopng
+import csv
 
 from darkflow.net.build import TFNet
 import cv2
 
 # Specify the .dcm folder path
 # r"D:\FYP\imageConvert\dicom_image\C3N-04611\02-11-2011-K Neck ContrastAdult-21611\7-Neck Venous  150  Br40  S4-46110"
-folder_path = r"D:\FYP\imageConvert\dicom_image\C3N-01944\09-06-2000-Szyja i krtan z kontrastem-98323\5-SZYJACM  1.0  I26s  3-70627"
+folder_path = r"D:\FYP\imageConvert\jpg_conver2\test_data"
 
-convert_image_path = r"D:\FYP\imageConvert\dicom_image\C3N-01944\09-06-2000-Szyja i krtan z kontrastem-98323\5-SZYJACM  1.0  I26s  3-70627\convert"
+output_path = r"D:\FYP\imageConvert\jpg_conver2\test_data_out"
 
 #Set working directory and locate the image
-root = r"D:\FYP\imageConvert\dicom_image\C3N-01944\09-06-2000-Szyja i krtan z kontrastem-98323\5-SZYJACM  1.0  I26s  3-70627"
+root = r"D:\FYP\imageConvert\jpg_conver2\test_data"
 
+counter = 0
 #Generate list of filepath and filenames
 filepath = []
 filename = []
@@ -35,12 +37,17 @@ filelist = pd.DataFrame(filename, columns=['filename'])
 filelist['filepath'] = filepath #General file list & directories
 fail_list = [] #List of files that failed to be anonymized
 
+with open('test_result2.csv', 'w', newline='') as test_result:
+    writer = csv.writer(test_result)
+    writer.writerow(["ID", "FileName", "Result", "Confidence"])
+
 options = {"model": "cfg/tiny-yolo-voc-custom.cfg", "load": -1, "threshold": 0.1}
 
 tfnet = TFNet(options)
 
-def boxing(imgcv, predictions):
+def boxing(itemname, imgcv, predictions):
     #newImage = np.copy(imgcv)
+    boxing_result = []
 
     for result in predictions:
         top_x = result['topleft']['x']
@@ -51,10 +58,16 @@ def boxing(imgcv, predictions):
 
         confidence = result['confidence']
         #label = result['label'] + " " + str(round(confidence, 3))
+        boxing_result.append(top_x)
+        boxing_result.append(top_y)
+        boxing_result.append(btm_x)
+        boxing_result.append(btm_y)
 
         if confidence > 0.5:
-            imgcv = cv2.rectangle(imgcv, (top_x, top_y), (btm_x, btm_y), (0,0,0), -1)
-            #newImage = cv2.putText(newImage, label, (btm_x, btm_y-20), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (255, 0, 0), 1, cv2.LINE_AA)
+            with open(r"C:\Users\munhe\Dev\darkflow\test_result2.csv", 'a', newline='') as fd:
+                writer = csv.writer(fd)
+                writer.writerow([counter, itemname, boxing_result, confidence])
+            imgcv = cv2.rectangle(imgcv, (top_x, top_y), (btm_x, btm_y), (255,0,0), 3)
 
     return imgcv
 
@@ -66,43 +79,24 @@ def boxing(imgcv, predictions):
 #     convertedImg = os.path.join(folder_path, outputImg[0] + '.jpg')
 #     return convertedImg
 
-def convertImg(dicomImage):
-    ds = dicom.dcmread(os.path.join(folder_path, dicomImage))
-    pixel_array_numpy = ds.pixel_array
-
-    image = dicomImage.split('.')
-    image = image[0] + '.jpg'
-
-    if not os.path.exists(convert_image_path):
-        try:
-            os.makedirs(convert_image_path)
-        except OSError as exc: # Guard against race condition
-            if exc.errno != errno.EEXIST:
-                raise
-
-    convert_image = os.path.join(convert_image_path, image)
-    cv2.imwrite(convert_image, pixel_array_numpy)
-
-    return convert_image
-
 for i in range(0, len(filepath)):
     os.chdir('\\'.join(str(filepath[i]).split('\\')[:-1])) #Step 1 - Access the file location
 
-    # Convert DICOM image to jpg
-    getImg = convertImg(filename[i])
+    print(filename[i])
 
-    imgcv = cv2.imread(getImg)
+    counter += 1
+    imgcv = cv2.imread(filename[i])
     imgcv = cv2.cvtColor(imgcv, cv2.COLOR_BGR2RGB)
     result = tfnet.return_predict(imgcv)
-    #print(result)
 
     try:
-        dataset = dicom.dcmread(filename[i])  #Step 2 - Read the DICOM file
-        image = dataset.pixel_array
-        modifiedImage = boxing(image, result)
-        dataset.PixelData = modifiedImage.tobytes()
-        #Save & Overwrite original record
-        dataset.save_as(str(filepath[i].split("\\")[-1]))
+        #dataset = dicom.dcmread(filename[i])  #Step 2 - Read the DICOM file
+        # image = dataset.pixel_array
+        modifiedImage = boxing(filename[i], imgcv, result)
+        # dataset.PixelData = modifiedImage.tobytes()
+        # #Save & Overwrite original record
+        # dataset.save_as(str(output_path))
+        cv2.imwrite(os.path.join(output_path, filename[i]), modifiedImage)
         print('Successfully anonymized:',i,'of',len(filename)-1,' ', 'Filename:',filename[i])
-    except:
-        print("FAILED!")
+    except Exception as e:
+        print(e)
